@@ -249,3 +249,12 @@ update storage.buckets set allowed_mime_types = array[
   'application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.ms-powerpoint',
   'text/plain','text/csv','application/zip','application/x-zip-compressed','application/json','application/octet-stream'
 ] where id = 'team-files';
+
+-- 7) Thư mục trong nhóm (Thư mục chính, thư mục con). Mỗi mục lưu thư mục ở data.folder.
+alter table public.team_items drop constraint if exists team_items_kind_check;
+alter table public.team_items add constraint team_items_kind_check check (kind in ('chart','file','note','folder'));
+
+-- 8) Ảnh đại diện nhóm (ảnh PNG/JPEG/WebP nhỏ, lưu dạng data URL, tối đa ~300 KB).
+alter table public.teams add column if not exists avatar text not null default '';
+alter table public.teams drop constraint if exists teams_avatar_check;
+alter table public.teams add constraint teams_avatar_check check (avatar = '' or (avatar ~ '^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$' and char_length(avatar) < 400000));
