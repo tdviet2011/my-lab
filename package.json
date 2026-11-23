@@ -1,0 +1,8 @@
+{
+  "name": "lab-tdv",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phòng lab vi mạch cá nhân — dự án, NCKH và không gian 3D",
+  "scripts": { "start": "node server.mjs --open", "dev": "node server.mjs" }
+}
