@@ -350,3 +350,5 @@ dialog::backdrop{background:#030810b8;backdrop-filter:blur(5px)}
 .sidebar>nav{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin}
 .sidebar>.sidebar-bottom{flex:0 0 auto;margin-top:auto}
 @media(max-height:940px){.sidebar{padding-top:18px}.sidebar .brand{padding-bottom:16px}.sidebar>nav a{padding-top:7px;padding-bottom:7px}.sidebar .lab-card{display:none}}
+
+.team-callout{display:flex;gap:14px;align-items:center;border:1px solid #3b6b6e;background:linear-gradient(120deg,#12302f,#131a2b);border-radius:14px;padding:14px 18px;margin:0 0 18px;color:inherit;text-decoration:none}.team-callout>span{color:var(--cyan);display:grid}.team-callout div{flex:1;display:grid;gap:3px}.team-callout small{color:#9fb2c1}.team-callout b{color:var(--cyan);white-space:nowrap;font-size:13px}.team-callout:hover{border-color:var(--cyan)}@media(max-width:620px){.team-callout{flex-wrap:wrap}}
