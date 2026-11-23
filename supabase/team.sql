@@ -258,3 +258,7 @@ alter table public.team_items add constraint team_items_kind_check check (kind i
 alter table public.teams add column if not exists avatar text not null default '';
 alter table public.teams drop constraint if exists teams_avatar_check;
 alter table public.teams add constraint teams_avatar_check check (avatar = '' or (avatar ~ '^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$' and char_length(avatar) < 400000));
+
+-- 9) Công cụ NCKH: tiến độ (mốc, việc), nhật ký thí nghiệm, tài liệu tham khảo.
+alter table public.team_items drop constraint if exists team_items_kind_check;
+alter table public.team_items add constraint team_items_kind_check check (kind in ('chart','file','note','folder','task','milestone','experiment','ref'));
