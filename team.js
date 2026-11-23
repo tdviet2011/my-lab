@@ -93,7 +93,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
     if(T.tab==='charts'){const list=T.items.filter(i=>i.kind==='chart'&&inFolder(i));
       return `${w?'<div class="team-bar"><button class="btn primary" data-t="chart-new">+ Biểu đồ mới</button></div>':''}<div class="chart-grid">${list.map(i=>`<article class="chart-card"><header><h3>${esc(i.title)}</h3><small>${who(i)} · ${when(i)}${tag(i)}</small></header><div class="chart-wrap">${chartSVG(i.data||{})}</div>${i.data?.note?`<p class="muted">${esc(i.data.note)}</p>`:''}<footer><button class="btn small" data-t="chart-png" data-id="${i.id}">Tải PNG</button>${w?`${moveBtn(i)}<button class="btn small" data-t="chart-edit" data-id="${i.id}">Sửa</button><button class="btn small danger" data-t="item-del" data-id="${i.id}">Xóa</button>`:''}</footer></article>`).join('')||'<p class="muted">Chưa có biểu đồ. Dán bảng số liệu từ Excel là vẽ được ngay.</p>'}</div>`;}
     if(T.tab==='files'){const list=T.items.filter(i=>i.kind==='file'&&inFolder(i));
-      return `${w?'<div class="team-bar"><label class="btn primary file-btn">+ Tải lên báo cáo / hình ảnh<input type="file" id="team-file" multiple hidden></label><small class="muted">Tối đa 50 MB mỗi tệp. Hình ảnh sẽ hiện xem trước.</small></div>':''}<div class="file-grid">${list.map(i=>`<article class="file-card">${/^image\//.test(i.file_type||'')?`<img data-img="${i.id}" alt="${esc(i.title)}" ${T.urls.get(i.id)?`src="${esc(T.urls.get(i.id))}"`:''}>`:`<div class="file-ico">${esc((i.file_name||'').split('.').pop().slice(0,4).toUpperCase()||'TỆP')}</div>`}<h4>${esc(i.title)}</h4><small>${who(i)} · ${when(i)}${tag(i)} · ${Math.max(1,Math.round((i.file_size||0)/1024))} KB</small><div class="file-actions"><button class="btn small" data-t="file-open" data-id="${i.id}">Mở</button>${w?`${moveBtn(i)}<button class="btn small danger" data-t="item-del" data-id="${i.id}">Xóa</button>`:''}</div></article>`).join('')||'<p class="muted">Chưa có tệp nào.</p>'}</div>`;}
+      return `${w?'<div class="team-bar"><label class="btn primary file-btn">+ Tải lên báo cáo / hình ảnh<input type="file" id="team-file" multiple hidden></label><label class="btn file-btn">+ Tải cả thư mục<input type="file" id="team-dir" webkitdirectory directory multiple hidden></label><small class="muted">Tối đa 50 MB mỗi tệp. Hình ảnh sẽ hiện xem trước.</small></div>':''}<div class="file-grid">${list.map(i=>`<article class="file-card">${/^image\//.test(i.file_type||'')?`<img data-img="${i.id}" alt="${esc(i.title)}" ${T.urls.get(i.id)?`src="${esc(T.urls.get(i.id))}"`:''}>`:`<div class="file-ico">${esc((i.file_name||'').split('.').pop().slice(0,4).toUpperCase()||'TỆP')}</div>`}<h4>${esc(i.title)}</h4><small>${who(i)} · ${when(i)}${tag(i)} · ${Math.max(1,Math.round((i.file_size||0)/1024))} KB</small><div class="file-actions"><button class="btn small" data-t="file-open" data-id="${i.id}">Mở</button>${w?`${moveBtn(i)}<button class="btn small danger" data-t="item-del" data-id="${i.id}">Xóa</button>`:''}</div></article>`).join('')||'<p class="muted">Chưa có tệp nào.</p>'}</div>`;}
     if(T.tab==='progress'){
       const ms=T.items.filter(i=>i.kind==='milestone').sort((a,b)=>(a.data?.date||'9').localeCompare(b.data?.date||'9'));
       const tasks=T.items.filter(i=>i.kind==='task');
@@ -152,20 +152,34 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       else{const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'note',title:f.title,data,created_by:me.id,author_email:me.email});if(error)throw error;}
       await refresh();});}
   async function refresh(){try{await loadTeam();}catch(e){fail(e);}draw();}
-  async function upload(files){
+  const OK_TYPES=new Set(['application/pdf','image/png','image/jpeg','image/webp','image/gif','image/svg+xml','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/msword','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.ms-powerpoint','text/plain','text/csv','application/zip','application/x-zip-compressed','application/json']);
+  async function ensureFolder(parts,parent){let cur=parent;for(const name of parts){const t=name.trim().slice(0,80);if(!t)continue;let f=folders().find(x=>x.title===t&&(x.data?.parent||'')===cur);
+      if(!f){const {data,error}=await client.from('team_items').insert({team_id:T.teamId,kind:'folder',title:t,data:{parent:cur},created_by:me.id,author_email:me.email}).select('*').single();if(error)throw error;f=data;T.items.push(f);}cur=f.id;}return cur;}
+  async function uploadDir(files){
+    files=files.filter(f=>!f.webkitRelativePath.split('/').some(seg=>seg.startsWith('.')||seg==='node_modules'||seg==='__MACOSX'));
+    if(!files.length){toast('Thư mục trống.',true);return;}
+    if(files.length>300){toast('Mỗi lần tải tối đa 300 tệp. Hãy chia nhỏ thư mục.',true);return;}
+    const big=files.filter(f=>f.size>MAX_FILE).length,total=files.reduce((n,f)=>n+f.size,0);
+    if(!await confirmAction('Tải cả thư mục lên?',`${files.length} tệp, khoảng ${Math.max(1,Math.round(total/1048576))} MB, vào “${fpath(cur())}”. Cấu trúc thư mục con được giữ nguyên.${big?` ${big} tệp quá 50 MB sẽ bị bỏ qua.`:''}`))return;
+    const map=new Map();
+    try{for(const f of files){const dir=f.webkitRelativePath.split('/').slice(0,-1).join('/');if(!map.has(dir))map.set(dir,await ensureFolder(dir.split('/'),cur()));}}catch(e){fail(e);return;}
+    await upload(files,f=>map.get(f.webkitRelativePath.split('/').slice(0,-1).join('/')));
+  }
+  async function upload(files,folderOf=()=>cur()){
+    let done=0;
     for(const file of files){
       if(file.size>MAX_FILE){toast(file.name+': quá 50 MB.',true);continue;}
       const safe=file.name.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').replace(/[^\w.-]+/g,'_').slice(-80)||'tep';
-      const path=`${T.teamId}/${crypto.randomUUID()}-${safe}`;toast('Đang tải '+file.name+'…');
-      const up=await client.storage.from(BUCKET).upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'});
+      const path=`${T.teamId}/${crypto.randomUUID()}-${safe}`;toast(`Đang tải ${++done}/${files.length}: ${file.name}`);
+      const up=await client.storage.from(BUCKET).upload(path,file,{upsert:false,contentType:OK_TYPES.has(file.type)?file.type:'application/octet-stream'});
       if(up.error){fail(up.error);continue;}
-      const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'file',title:file.name.slice(0,160),data:{folder:cur()},file_path:path,file_name:file.name.slice(0,200),file_type:(file.type||'').slice(0,100),file_size:file.size,created_by:me.id,author_email:me.email});
+      const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'file',title:file.name.slice(0,160),data:{folder:folderOf(file)||''},file_path:path,file_name:file.name.slice(0,200),file_type:(file.type||'').slice(0,100),file_size:file.size,created_by:me.id,author_email:me.email});
       if(error){await client.storage.from(BUCKET).remove([path]);fail(error);}
     }
     toast('Đã tải lên.');await refresh();
   }
 
-  root.addEventListener('change',e=>{if(e.target.id==='team-file'&&e.target.files.length){const fs=[...e.target.files];e.target.value='';upload(fs);}});
+  root.addEventListener('change',e=>{if(!e.target.files?.length)return;const fs=[...e.target.files];if(e.target.id==='team-file'){e.target.value='';upload(fs);}else if(e.target.id==='team-dir'){e.target.value='';uploadDir(fs);}});
   root.addEventListener('submit',async e=>{if(e.target.id!=='invite-form')return;e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
     try{const {data,error}=await client.rpc('add_team_member',{t:T.teamId,member_email:f.email,member_role:f.role});if(error)throw error;toast(data==='added'?'Đã thêm vào nhóm.':'Chưa có tài khoản: lời mời đã lưu, người đó vào nhóm khi đăng ký.');await refresh();}catch(err){fail(err);}});
   root.addEventListener('click',async e=>{
