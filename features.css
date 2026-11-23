@@ -393,22 +393,3 @@ dialog::backdrop{background:#030810b8;backdrop-filter:blur(5px)}
 .act-list li>div{flex:1;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;min-width:0}.act-list p{margin:0;font-size:13px;overflow-wrap:anywhere}.act-list q{color:#9fd8cf}.act-list small{color:#8aa0b0}
 .act-list time{font-size:11.5px;color:#7f97a6;white-space:nowrap}.act-delete .act-ic{background:#3a1a1f}.act-upload .act-ic{background:#12302f}.act-access .act-ic,.act-open .act-ic{background:#1b2236}
 .hist-bar select{width:auto!important;flex:0 0 auto;min-width:160px}
-/* Mã nguồn GitHub trong nhóm */
-.gh-root{display:flex;flex-direction:column;gap:10px}
-.gh-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.gh-head b{font-family:Consolas,monospace;color:#dceaf3}
-.gh-vis{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid #2f5b4f;color:#7fd8c0;margin-left:6px}.gh-vis.priv{border-color:#6b5426;color:#f0c46b}
-.gh-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.gh-tools select{width:auto!important;max-width:200px}
-.gh-token{border:1px solid #2a4252;background:#0b1620;border-radius:10px;padding:12px 14px;font-size:13px;display:grid;gap:8px}
-.gh-token p,.gh-token ol{margin:0}.gh-token ol{padding-left:20px;color:#a9bfcc;display:grid;gap:3px}
-.gh-token-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.gh-token-row input[type=password]{flex:1;min-width:220px}
-.gh-error{color:#ff9b8a;margin:0;font-size:13px}
-.gh-view{grid-template-columns:270px minmax(0,1fr)}
-.gh-side{display:flex;flex-direction:column;gap:8px;min-width:0}
-.gh-list{gap:1px;max-height:560px}
-.gh-list .gh-dir{font:600 11.5px Consolas,monospace;color:#7f97a6;padding:8px 4px 3px;overflow-wrap:anywhere}
-.gh-list button.gh-file{display:flex;justify-content:space-between;gap:8px;padding:5px 8px 5px calc(8px + var(--d,0)*12px);border-radius:6px;border-color:transparent;background:transparent;font:12px Consolas,monospace;color:#cfe3ee}
-.gh-list button.gh-file small{flex:none}
-.gh-view .code-pre{max-height:600px}
-.gh-img{background:#070d14;border:1px solid #1f3140;border-radius:10px;padding:12px;text-align:center}.gh-img img{max-width:100%;max-height:560px}
-@media(max-width:760px){.gh-view{grid-template-columns:1fr}.gh-list{flex-direction:column;max-height:260px}.gh-list button.gh-file{min-width:0}}
