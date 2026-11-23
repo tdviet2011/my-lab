@@ -6,7 +6,7 @@ async function toAvatar(file){if(!/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(f
 const ROLE={owner:'Chủ nhóm',editor:'Được sửa',viewer:'Chỉ xem'};
 const BUCKET='team-files',MAX_FILE=50*1024*1024;
 const SAMPLE_TABLE='Mẫu,Gốc,Cải tiến\nCARRY4,853,693\nLUT (nghìn),49.4,48.0';
-const T={teams:[],teamId:localStorage.getItem?.('lab-tdv:team')||'',tab:'progress',folder:'all',items:[],members:[],invites:[],loading:false,error:'',urls:new Map()};
+const T={teams:[],teamId:localStorage.getItem?.('lab-tdv:team')||'',tab:'progress',folder:'all',items:[],members:[],invites:[],activity:[],actFilter:'all',loading:false,error:'',urls:new Map()};
 
 export function createTeamPage({root,client,me,toast,confirmAction}){
   const $=(s,r=root)=>r.querySelector(s);
@@ -20,7 +20,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
   const cur=()=>T.folder==='all'?'':T.folder;
   const inFolder=i=>T.folder==='all'||(i.data?.folder||'')===T.folder;
   const tag=i=>T.folder==='all'?` · <span class="folder-tag">📁 ${esc(fname(i.data?.folder||''))}</span>`:'';
-  const TABS=[['progress','Tiến độ'],['charts','Biểu đồ','chart'],['experiments','Nhật ký thí nghiệm','experiment'],['files','Báo cáo & hình ảnh','file'],['refs','Tài liệu tham khảo','ref'],['notes','Ghi chú','note'],['members','Thành viên']];
+  const TABS=[['progress','Tiến độ'],['charts','Biểu đồ','chart'],['experiments','Nhật ký thí nghiệm','experiment'],['files','Báo cáo & hình ảnh','file'],['refs','Tài liệu tham khảo','ref'],['notes','Ghi chú','note'],['members','Thành viên'],['history','Lịch sử']];
   const TASK_ST={todo:'Cần làm',doing:'Đang làm',done:'Xong'};
   const today=()=>new Date().toISOString().slice(0,10);
   const fmtDate=d=>d?new Date(d+'T00:00:00').toLocaleDateString('vi-VN'):'';
@@ -28,8 +28,9 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
   const dueTag=(d,done)=>{if(!d)return '';const n=daysLeft(d);const cls=done?'ok':n<0?'late':n<=7?'soon':'';return `<span class="due ${cls}">${done?'✓ ':''}${fmtDate(d)}${done?'':n<0?` · trễ ${-n} ngày`:n===0?' · hôm nay':n<=7?` · còn ${n} ngày`:''}</span>`;};
   const memberOpts=sel=>`<option value="">Chưa giao</option>`+T.members.map(m=>`<option value="${esc(m.email)}" ${sel===m.email?'selected':''}>${esc(m.email)}</option>`).join('');
   const kindTitle={task:'việc',milestone:'mốc',experiment:'lần thí nghiệm',ref:'tài liệu'};
-  async function saveItem(item,kind,title,data){
-    if(item){const {error}=await client.from('team_items').update({title,data:{...(item.data||{}),...data}}).eq('id',item.id);if(error)throw error;}
+  const askSave=async t=>{if(!await confirmAction('Lưu thay đổi?',`Cập nhật “${t}”. Thay đổi sẽ được ghi vào lịch sử nhóm kèm tên bạn.`))throw new Error('Đã hủy, chưa lưu gì.');};
+  async function saveItem(item,kind,title,data,quiet=false){
+    if(item){if(!quiet)await askSave(item.title);const {error}=await client.from('team_items').update({title,data:{...(item.data||{}),...data}}).eq('id',item.id);if(error)throw error;}
     else{const {error}=await client.from('team_items').insert({team_id:T.teamId,kind,title,data:{folder:cur(),...data},created_by:me.id,author_email:me.email});if(error)throw error;}
     await refresh();}
   // Trích dẫn
@@ -71,6 +72,8 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       client.from('team_invites').select('email,role').eq('team_id',T.teamId)]);
     if(i.error)throw i.error;if(m.error)throw m.error;
     T.items=i.data||[];T.members=m.data||[];T.invites=v.data||[];
+    client.rpc('log_team_access',{t:T.teamId}).then(()=>{},()=>{});
+    const a=await client.from('team_activity').select('*').eq('team_id',T.teamId).order('at',{ascending:false}).limit(400);T.activity=a.error?[]:(a.data||[]);T.activityError=a.error?'Chưa bật lịch sử: chạy lại supabase/team.sql trong Supabase.':'';
   }
 
   function draw(){
@@ -81,7 +84,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
     else if(T.loading&&!t)main='<div class="team-empty"><p>Đang tải…</p></div>';
     else if(!t)main='<div class="team-empty"><h3>Tạo nhóm nghiên cứu đầu tiên</h3><p>Nhóm là nơi chung để bạn và người cùng làm đề tài đặt biểu đồ, báo cáo và hình ảnh. Bạn thêm thành viên bằng email của họ.</p><button class="btn primary" data-t="new-team">+ Tạo nhóm</button></div>';
     else main=`<div class="team-main"><header class="team-head">${AV(t)}<div class="team-title"><span class="eyebrow">DỰ ÁN NCKH CHUNG · ${esc(ROLE[role()]).toUpperCase()}</span><h2>${esc(t.name)}</h2>${t.description?`<p class="muted">${esc(t.description)}</p>`:''}</div><div class="team-head-actions">${t.github_url?`<a class="btn small" href="${esc(t.github_url)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`:''}<button class="btn small" data-t="reload">Làm mới</button>${role()==='owner'?'<button class="btn small" data-t="edit-team">Sửa nhóm</button><button class="btn small danger" data-t="del-team">Xóa nhóm</button>':''}</div></header>
-      ${folderBar()}<nav class="team-tabs">${TABS.map(([k,l,kind])=>`<button data-t="tab" data-k="${k}" class="${T.tab===k?'active':''}">${l} (${k==='members'?T.members.length:k==='progress'?T.items.filter(i=>i.kind==='task'||i.kind==='milestone').length:T.items.filter(i=>i.kind===kind&&inFolder(i)).length})</button>`).join('')}</nav>
+      ${folderBar()}<nav class="team-tabs">${TABS.map(([k,l,kind])=>`<button data-t="tab" data-k="${k}" class="${T.tab===k?'active':''}">${l}${k==='history'?'':` (${k==='members'?T.members.length:k==='progress'?T.items.filter(i=>i.kind==='task'||i.kind==='milestone').length:T.items.filter(i=>i.kind===kind&&inFolder(i)).length})`}</button>`).join('')}</nav>
       <section class="team-body">${body()}</section></div>`;
     root.innerHTML=`<header class="page-heading"><div><span class="eyebrow">LÀM VIỆC CHUNG</span><h1>Nhóm NCKH</h1><p>Nhiều người cùng dùng biểu đồ, báo cáo và hình ảnh của một đề tài.</p></div></header><div class="team-layout">${side}${main}</div>`;
     T.items.filter(i=>i.kind==='file'&&/^image\//.test(i.file_type||'')).forEach(async i=>{if(T.urls.has(i.id))return;try{const {data}=await client.storage.from(BUCKET).createSignedUrl(i.file_path,3600);if(data){T.urls.set(i.id,data.signedUrl);const img=root.querySelector(`img[data-img="${i.id}"]`);if(img)img.src=data.signedUrl;}}catch{}});
@@ -94,6 +97,14 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       return `${w?'<div class="team-bar"><button class="btn primary" data-t="chart-new">+ Biểu đồ mới</button></div>':''}<div class="chart-grid">${list.map(i=>`<article class="chart-card"><header><h3>${esc(i.title)}</h3><small>${who(i)} · ${when(i)}${tag(i)}</small></header><div class="chart-wrap">${chartSVG(i.data||{})}</div>${i.data?.note?`<p class="muted">${esc(i.data.note)}</p>`:''}<footer><button class="btn small" data-t="chart-png" data-id="${i.id}">Tải PNG</button>${w?`${moveBtn(i)}<button class="btn small" data-t="chart-edit" data-id="${i.id}">Sửa</button><button class="btn small danger" data-t="item-del" data-id="${i.id}">Xóa</button>`:''}</footer></article>`).join('')||'<p class="muted">Chưa có biểu đồ. Dán bảng số liệu từ Excel là vẽ được ngay.</p>'}</div>`;}
     if(T.tab==='files'){const list=T.items.filter(i=>i.kind==='file'&&inFolder(i));
       return `${w?'<div class="team-bar"><label class="btn primary file-btn">+ Tải lên báo cáo / hình ảnh<input type="file" id="team-file" multiple hidden></label><label class="btn file-btn">+ Tải cả thư mục<input type="file" id="team-dir" webkitdirectory directory multiple hidden></label><small class="muted">Tối đa 50 MB mỗi tệp. Hình ảnh sẽ hiện xem trước.</small></div>':''}<div class="file-grid">${list.map(i=>`<article class="file-card">${/^image\//.test(i.file_type||'')?`<img data-img="${i.id}" alt="${esc(i.title)}" ${T.urls.get(i.id)?`src="${esc(T.urls.get(i.id))}"`:''}>`:`<div class="file-ico">${esc((i.file_name||'').split('.').pop().slice(0,4).toUpperCase()||'TỆP')}</div>`}<h4>${esc(i.title)}</h4><small>${who(i)} · ${when(i)}${tag(i)} · ${Math.max(1,Math.round((i.file_size||0)/1024))} KB</small><div class="file-actions"><button class="btn small" data-t="file-open" data-id="${i.id}">Mở</button>${w?`${moveBtn(i)}<button class="btn small danger" data-t="item-del" data-id="${i.id}">Xóa</button>`:''}</div></article>`).join('')||'<p class="muted">Chưa có tệp nào.</p>'}</div>`;}
+    if(T.tab==='history'){
+      const ACT={access:['👁','Truy cập nhóm'],open:['📖','Mở tệp'],upload:['⬆','Tải lên'],create:['＋','Thêm'],update:['✎','Sửa'],delete:['🗑','Xóa'],member_add:['👤','Thêm thành viên'],member_remove:['👤','Xóa thành viên'],member_role:['👤','Đổi vai trò'],invite:['✉','Mời'],invite_cancel:['✉','Hủy lời mời'],team_update:['⚙','Sửa thông tin nhóm']};
+      const KIND={chart:'biểu đồ',file:'tệp',note:'ghi chú',folder:'thư mục',task:'việc',milestone:'mốc',experiment:'thí nghiệm',ref:'tài liệu tham khảo',member:'',team:''};
+      const groups={all:()=>true,access:a=>a.action==='access'||a.action==='open',upload:a=>a.action==='upload',edit:a=>['create','update','team_update'].includes(a.action),delete:a=>a.action==='delete',member:a=>a.action.startsWith('member')||a.action.startsWith('invite')};
+      const list=T.activity.filter(groups[T.actFilter]||groups.all).filter(a=>!T.actUser||a.email===T.actUser);
+      const users=[...new Set(T.activity.map(a=>a.email).filter(Boolean))];
+      return `<div class="team-bar hist-bar"><select id="act-filter">${[['all','Tất cả hoạt động'],['access','Truy cập / mở tệp'],['upload','Tải lên'],['edit','Thêm / sửa'],['delete','Xóa'],['member','Thành viên']].map(([k,l])=>`<option value="${k}" ${T.actFilter===k?'selected':''}>${l}</option>`).join('')}</select><select id="act-user"><option value="">Mọi người</option>${users.map(u=>`<option value="${esc(u)}" ${T.actUser===u?'selected':''}>${esc(u)}</option>`).join('')}</select><button class="btn small" data-t="act-export">Xuất CSV</button><small class="muted">Lịch sử do máy chủ ghi, không ai sửa hay xóa được.</small></div>
+        ${T.activityError?`<p class="muted">${esc(T.activityError)}</p>`:''}<ol class="act-list">${list.map(a=>{const [ic,lb]=ACT[a.action]||['•',a.action];const d=new Date(a.at);return `<li class="act-${esc(a.action)}"><span class="act-ic">${ic}</span><div><p><b>${esc(a.email||'(không rõ)')}</b> ${lb}${KIND[a.item_kind]?' '+KIND[a.item_kind]:''}${a.item_title?` <q>${esc(a.item_title)}</q>`:''}${a.detail?` <small>· ${esc(a.detail)}</small>`:''}</p><time>${d.toLocaleDateString('vi-VN')} ${d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</time></div></li>`;}).join('')||'<p class="muted">Chưa có hoạt động nào.</p>'}</ol>`;}
     if(T.tab==='progress'){
       const ms=T.items.filter(i=>i.kind==='milestone').sort((a,b)=>(a.data?.date||'9').localeCompare(b.data?.date||'9'));
       const tasks=T.items.filter(i=>i.kind==='task');
@@ -131,7 +142,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       <label>Ghi chú <small>không bắt buộc</small><input name="note" maxlength="300" value="${esc(c.note||'')}"></label><div class="chart-preview" id="chart-preview"></div>`,
       async f=>{const p=parseTable(f.table);if(p.error)throw new Error(p.error);
         const data={type:f.type,xLabel:f.xLabel,yLabel:f.yLabel,table:f.table,note:f.note,title:f.title,folder:item?(item.data?.folder||''):cur()};
-        if(item){const {error}=await client.from('team_items').update({title:f.title,data,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
+        if(item){await askSave(item.title);const {error}=await client.from('team_items').update({title:f.title,data,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
         else{const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'chart',title:f.title,data,created_by:me.id,author_email:me.email});if(error)throw error;}
         await refresh();});
     const prev=()=>{const f=Object.fromEntries(new FormData($('form',d)));$('#chart-preview',d).innerHTML=chartSVG({...f},{width:560,height:300});};
@@ -148,7 +159,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
     f=>{const url=(f.url||'').trim();if(url&&!/^https:\/\//.test(url))throw new Error('Liên kết phải bắt đầu bằng https://');const doi=(f.doi||'').trim().replace(/^https?:\/\/(dx\.)?doi\.org\//,'');if(doi&&!/^10\.\d{3,9}\/\S+$/.test(doi))throw new Error('DOI không hợp lệ (dạng 10.xxxx/...).');if(f.year&&!/^\d{4}$/.test(f.year))throw new Error('Năm gồm 4 chữ số.');return saveItem(item,'ref',f.title.trim(),{authors:f.authors||'',venue:f.venue||'',year:f.year||'',doi,url,note:f.note||''});});}
   function noteDialog(item){modal(`<h2>${item?'Sửa':'Thêm'} ghi chú</h2><label>Tiêu đề<input name="title" required maxlength="160" value="${esc(item?.title||'')}"></label><label>Nội dung<textarea name="body" rows="8" maxlength="20000">${esc(item?.data?.body||'')}</textarea></label>`,
     async f=>{const data={body:f.body,folder:item?(item.data?.folder||''):cur()};
-      if(item){const {error}=await client.from('team_items').update({title:f.title,data,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
+      if(item){await askSave(item.title);const {error}=await client.from('team_items').update({title:f.title,data,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
       else{const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'note',title:f.title,data,created_by:me.id,author_email:me.email});if(error)throw error;}
       await refresh();});}
   async function refresh(){try{await loadTeam();}catch(e){fail(e);}draw();}
@@ -179,7 +190,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
     toast('Đã tải lên.');await refresh();
   }
 
-  root.addEventListener('change',e=>{if(!e.target.files?.length)return;const fs=[...e.target.files];if(e.target.id==='team-file'){e.target.value='';upload(fs);}else if(e.target.id==='team-dir'){e.target.value='';uploadDir(fs);}});
+  root.addEventListener('change',async e=>{if(e.target.id==='act-filter'){T.actFilter=e.target.value;draw();return;}if(e.target.id==='act-user'){T.actUser=e.target.value;draw();return;}if(!e.target.files?.length)return;const fs=[...e.target.files];if(e.target.id==='team-file'){e.target.value='';if(await confirmAction('Tải lên?',`${fs.length} tệp (${fs.slice(0,3).map(f=>f.name).join(', ')}${fs.length>3?'…':''}) vào “${fpath(cur())}”. Mọi thành viên sẽ thấy và lịch sử ghi tên bạn.`))upload(fs);}else if(e.target.id==='team-dir'){e.target.value='';uploadDir(fs);}});
   root.addEventListener('submit',async e=>{if(e.target.id!=='invite-form')return;e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
     try{const {data,error}=await client.rpc('add_team_member',{t:T.teamId,member_email:f.email,member_role:f.role});if(error)throw error;toast(data==='added'?'Đã thêm vào nhóm.':'Chưa có tài khoản: lời mời đã lưu, người đó vào nhóm khi đăng ký.');await refresh();}catch(err){fail(err);}});
   root.addEventListener('click',async e=>{
@@ -189,19 +200,20 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       else if(k==='tab'){T.tab=b.dataset.k;draw();}
       else if(k==='folder'){T.folder=b.dataset.k;if(T.tab==='members')T.tab='progress';draw();}
       else if(k==='folder-new')modal(`<h2>Thư mục mới</h2><p class="muted">Nằm trong: ${esc(fpath(cur()))}</p><label>Tên thư mục<input name="name" required maxlength="80" placeholder="Ví dụ: Báo cáo giữa kỳ"></label>`,async f=>{const {error}=await client.from('team_items').insert({team_id:T.teamId,kind:'folder',title:f.name.trim().slice(0,80),data:{parent:cur()},created_by:me.id,author_email:me.email});if(error)throw error;await refresh();});
-      else if(k==='folder-rename'){const f0=folders().find(f=>f.id===T.folder);if(f0)modal(`<h2>Đổi tên thư mục</h2><label>Tên thư mục<input name="name" required maxlength="80" value="${esc(f0.title)}"></label>`,async f=>{const {error}=await client.from('team_items').update({title:f.name.trim().slice(0,80),data:f0.data||{}}).eq('id',f0.id);if(error)throw error;await refresh();});}
+      else if(k==='folder-rename'){const f0=folders().find(f=>f.id===T.folder);if(f0)modal(`<h2>Đổi tên thư mục</h2><label>Tên thư mục<input name="name" required maxlength="80" value="${esc(f0.title)}"></label>`,async f=>{await askSave(f0.title);const {error}=await client.from('team_items').update({title:f.name.trim().slice(0,80),data:f0.data||{}}).eq('id',f0.id);if(error)throw error;await refresh();});}
       else if(k==='folder-del'){const f0=folders().find(f=>f.id===T.folder);if(f0&&await confirmAction('Xóa thư mục “'+f0.title+'”?','Các mục và thư mục con bên trong sẽ được chuyển lên thư mục cha, không bị xóa.')){const parent=f0.data?.parent||'';
         for(const i of T.items.filter(i=>i.id!==f0.id&&(i.kind==='folder'?(i.data?.parent||''):(i.data?.folder||''))===f0.id)){const data={...(i.data||{})};if(i.kind==='folder')data.parent=parent;else data.folder=parent;const {error}=await client.from('team_items').update({data}).eq('id',i.id);if(error)throw error;}
         const {error}=await client.from('team_items').delete().eq('id',f0.id);if(error)throw error;T.folder=parent;await refresh();}}
-      else if(k==='move'&&item){const opts=[['','Thư mục chính'],...folders().map(f=>[f.id,fpath(f.id)])];modal(`<h2>Chuyển “${esc(item.title)}”</h2><label>Tới thư mục<select name="folder">${opts.map(([v,l])=>`<option value="${esc(v)}" ${(item.data?.folder||'')===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>`,async f=>{const {error}=await client.from('team_items').update({data:{...(item.data||{}),folder:f.folder}}).eq('id',item.id);if(error)throw error;await refresh();});}
+      else if(k==='move'&&item){const opts=[['','Thư mục chính'],...folders().map(f=>[f.id,fpath(f.id)])];modal(`<h2>Chuyển “${esc(item.title)}”</h2><label>Tới thư mục<select name="folder">${opts.map(([v,l])=>`<option value="${esc(v)}" ${(item.data?.folder||'')===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>`,async f=>{await askSave(item.title);const {error}=await client.from('team_items').update({data:{...(item.data||{}),folder:f.folder}}).eq('id',item.id);if(error)throw error;await refresh();});}
       else if(k==='reload')await loadTeams();
       else if(k==='new-team')modal('<h2>Nhóm nghiên cứu mới</h2><label>Tên nhóm / đề tài<input name="name" required maxlength="120"></label><label>Mô tả ngắn<textarea name="desc" rows="3" maxlength="2000"></textarea></label>',async f=>{const {data,error}=await client.rpc('create_team',{team_name:f.name,team_desc:f.desc||''});if(error)throw error;T.teamId=data;T.tab='progress';await loadTeams();});
-      else if(k==='edit-team'){const t=team();modal(`<h2>Sửa nhóm</h2><label>Tên nhóm / đề tài<input name="name" required maxlength="120" value="${esc(t.name)}"></label><label>Mô tả ngắn<textarea name="desc" rows="3" maxlength="2000">${esc(t.description)}</textarea></label><label>Ảnh đại diện nhóm <small>PNG, JPG, WebP hoặc SVG; tự cắt vuông 256×256</small><input name="avatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"></label>${t.avatar?'<label class="check-label"><input type="checkbox" name="clearAvatar"> Bỏ ảnh hiện tại</label>':''}<label>Liên kết GitHub <small>repo hoặc trang tài khoản, ví dụ https://github.com/tdviet2011/my-lab</small><input name="github" type="url" maxlength="200" placeholder="https://github.com/..." value="${esc(t.github_url)}"></label>`,async f=>{const g=(f.github||'').trim();if(g&&!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?\/?$/.test(g))throw new Error('Chỉ nhận liên kết dạng https://github.com/tên/repo.');let avatar=t.avatar||'';if(f.clearAvatar)avatar='';if(f.avatarFile&&f.avatarFile.size)avatar=await toAvatar(f.avatarFile);const {error}=await client.from('teams').update({name:f.name,description:f.desc||'',github_url:g,avatar}).eq('id',T.teamId);if(error)throw error;await loadTeams();});}
+      else if(k==='edit-team'){const t=team();modal(`<h2>Sửa nhóm</h2><label>Tên nhóm / đề tài<input name="name" required maxlength="120" value="${esc(t.name)}"></label><label>Mô tả ngắn<textarea name="desc" rows="3" maxlength="2000">${esc(t.description)}</textarea></label><label>Ảnh đại diện nhóm <small>PNG, JPG, WebP hoặc SVG; tự cắt vuông 256×256</small><input name="avatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"></label>${t.avatar?'<label class="check-label"><input type="checkbox" name="clearAvatar"> Bỏ ảnh hiện tại</label>':''}<label>Liên kết GitHub <small>repo hoặc trang tài khoản, ví dụ https://github.com/tdviet2011/my-lab</small><input name="github" type="url" maxlength="200" placeholder="https://github.com/..." value="${esc(t.github_url)}"></label>`,async f=>{const g=(f.github||'').trim();if(g&&!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?\/?$/.test(g))throw new Error('Chỉ nhận liên kết dạng https://github.com/tên/repo.');await askSave(t.name);let avatar=t.avatar||'';if(f.clearAvatar)avatar='';if(f.avatarFile&&f.avatarFile.size)avatar=await toAvatar(f.avatarFile);const {error}=await client.from('teams').update({name:f.name,description:f.desc||'',github_url:g,avatar}).eq('id',T.teamId);if(error)throw error;await loadTeams();});}
       else if(k==='del-team'){if(await confirmAction('Xóa nhóm?','Toàn bộ biểu đồ, ghi chú và tệp của nhóm sẽ mất với mọi thành viên.')){const files=T.items.filter(i=>i.file_path).map(i=>i.file_path);if(files.length)await client.storage.from(BUCKET).remove(files);const {error}=await client.from('teams').delete().eq('id',T.teamId);if(error)throw error;T.teamId='';await loadTeams();}}
       else if(k==='chart-new')chartDialog(null);
       else if(k==='chart-edit'&&item)chartDialog(item);
       else if(k==='chart-png'&&item)svgToPng(chartSVG(item.data||{}),item.title);
       else if(k==='note-new')noteDialog(null);
+      else if(k==='act-export'){const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';download('lich-su-nhom.csv','\ufeff'+['Thời gian,Người,Hành động,Loại,Mục,Chi tiết',...T.activity.map(a=>[new Date(a.at).toLocaleString('vi-VN'),a.email,a.action,a.item_kind,a.item_title,a.detail].map(q).join(','))].join('\n'));}
       else if(k==='ms-new')msDialog(null);
       else if(k==='ms-edit'&&item)msDialog(item);
       else if(k==='ms-toggle'&&item)await saveItem(item,'milestone',item.title,{done:!item.data?.done});
@@ -217,7 +229,7 @@ export function createTeamPage({root,client,me,toast,confirmAction}){
       else if(k==='ref-copy'&&item){try{await navigator.clipboard.writeText(cite(item,'ieee',Number(b.dataset.k)));toast('Đã chép trích dẫn IEEE.');}catch{toast('Trình duyệt không cho chép tự động.',true);}}
       else if(k==='ref-export'){const list=T.items.filter(i=>i.kind==='ref'&&inFolder(i)).sort((a,c)=>a.created_at.localeCompare(c.created_at));const st=b.dataset.k;const text=list.map((i,n)=>cite(i,st,n+1)).join(st==='bib'?'\n\n':'\n');download(`tai-lieu-tham-khao.${st==='bib'?'bib':'txt'}`,text);}
       else if(k==='note-edit'&&item)noteDialog(item);
-      else if(k==='file-open'&&item){const {data,error}=await client.storage.from(BUCKET).createSignedUrl(item.file_path,300);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer');}
+      else if(k==='file-open'&&item){client.rpc('log_team_access',{t:T.teamId,what:'open',title:item.title}).then(()=>{},()=>{});const {data,error}=await client.storage.from(BUCKET).createSignedUrl(item.file_path,300);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer');}
       else if(k==='item-del'&&item){if(await confirmAction('Xóa mục này?',item.title)){if(item.file_path)await client.storage.from(BUCKET).remove([item.file_path]);const {error}=await client.from('team_items').delete().eq('id',item.id);if(error)throw error;await refresh();}}
       else if(k==='member-del'){const self=id===me.id;if(await confirmAction(self?'Rời nhóm?':'Xóa thành viên?',self?'Bạn sẽ không xem được nhóm này nữa.':'Người này sẽ không còn truy cập nhóm.')){const {error}=await client.rpc('remove_team_member',{t:T.teamId,member:id});if(error)throw error;if(self){T.teamId='';await loadTeams();}else await refresh();}}
       else if(k==='invite-del'){const {error}=await client.rpc('cancel_team_invite',{t:T.teamId,mail:b.dataset.email});if(error)throw error;await refresh();}

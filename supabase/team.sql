@@ -262,3 +262,116 @@ alter table public.teams add constraint teams_avatar_check check (avatar = '' or
 -- 9) Công cụ NCKH: tiến độ (mốc, việc), nhật ký thí nghiệm, tài liệu tham khảo.
 alter table public.team_items drop constraint if exists team_items_kind_check;
 alter table public.team_items add constraint team_items_kind_check check (kind in ('chart','file','note','folder','task','milestone','experiment','ref'));
+
+-- 10) Lịch sử hoạt động (chỉ thêm, không ai sửa / xóa được): ai truy cập, thêm, sửa, tải lên, xóa, đổi thành viên.
+create table if not exists public.team_activity (
+  id bigserial primary key,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  user_id uuid,
+  email text not null default '',
+  action text not null,
+  item_kind text not null default '',
+  item_title text not null default '',
+  detail text not null default '',
+  at timestamptz not null default now()
+);
+create index if not exists team_activity_idx on public.team_activity(team_id, at desc);
+alter table public.team_activity enable row level security;
+revoke all on public.team_activity from anon, authenticated;
+grant select on public.team_activity to authenticated;
+drop policy if exists act_select on public.team_activity;
+create policy act_select on public.team_activity for select to authenticated using (public.team_role(team_id) is not null);
+
+create or replace function public.team_log(t uuid, act text, kind text, title text, det text default '') returns void
+language plpgsql security definer set search_path = '' as $$
+declare me uuid := (select auth.uid()); mail text;
+begin
+  select email into mail from auth.users where id = me;
+  insert into public.team_activity(team_id, user_id, email, action, item_kind, item_title, detail)
+  values (t, me, coalesce(mail,''), act, coalesce(kind,''), left(coalesce(title,''),200), left(coalesce(det,''),300));
+end $$;
+revoke all on function public.team_log(uuid,text,text,text,text) from public, anon, authenticated;
+
+create or replace function public.team_items_audit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare det text := '';
+begin
+  if tg_op = 'INSERT' then
+    perform public.team_log(new.team_id, case when new.kind = 'file' then 'upload' else 'create' end, new.kind, new.title, coalesce(new.file_name,''));
+  elsif tg_op = 'UPDATE' then
+    if new.title is distinct from old.title then det := 'đổi tên từ “' || left(old.title,80) || '”'; end if;
+    if (new.data->>'folder') is distinct from (old.data->>'folder') then det := trim(det || ' chuyển thư mục'); end if;
+    if (new.data->>'status') is distinct from (old.data->>'status') then det := trim(det || ' trạng thái → ' || coalesce(new.data->>'status','')); end if;
+    if (new.data->>'done') is distinct from (old.data->>'done') then det := trim(det || case when (new.data->>'done')::boolean then ' đánh dấu xong' else ' mở lại' end); end if;
+    perform public.team_log(new.team_id, 'update', new.kind, new.title, det);
+  else
+    -- Không ghi khi cả nhóm bị xóa (dòng nhóm đã biến mất).
+    if exists (select 1 from public.teams where id = old.team_id) then
+      perform public.team_log(old.team_id, 'delete', old.kind, old.title, coalesce(old.file_name,''));
+    end if;
+  end if;
+  return null;
+end $$;
+drop trigger if exists team_items_audit_trg on public.team_items;
+create trigger team_items_audit_trg after insert or update or delete on public.team_items for each row execute function public.team_items_audit();
+
+create or replace function public.team_members_audit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then perform public.team_log(new.team_id, 'member_add', 'member', new.email, new.role);
+  elsif tg_op = 'UPDATE' then perform public.team_log(new.team_id, 'member_role', 'member', new.email, old.role || ' → ' || new.role);
+  elsif exists (select 1 from public.teams where id = old.team_id) then perform public.team_log(old.team_id, 'member_remove', 'member', old.email, old.role);
+  end if;
+  return null;
+end $$;
+drop trigger if exists team_members_audit_trg on public.team_members;
+create trigger team_members_audit_trg after insert or update or delete on public.team_members for each row execute function public.team_members_audit();
+
+create or replace function public.team_invites_audit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then perform public.team_log(new.team_id, 'invite', 'member', new.email, new.role);
+  end if;
+  return null;
+end $$;
+drop trigger if exists team_invites_audit_trg on public.team_invites;
+create trigger team_invites_audit_trg after insert on public.team_invites for each row execute function public.team_invites_audit();
+
+create or replace function public.teams_audit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare det text := '';
+begin
+  if new.name is distinct from old.name then det := 'đổi tên từ “' || left(old.name,80) || '”'; end if;
+  if new.avatar is distinct from old.avatar then det := trim(det || ' đổi ảnh đại diện'); end if;
+  if new.github_url is distinct from old.github_url then det := trim(det || ' đổi liên kết GitHub'); end if;
+  if new.description is distinct from old.description then det := trim(det || ' sửa mô tả'); end if;
+  perform public.team_log(new.id, 'team_update', 'team', new.name, det);
+  return null;
+end $$;
+drop trigger if exists teams_audit_trg on public.teams;
+create trigger teams_audit_trg after update on public.teams for each row execute function public.teams_audit();
+
+-- Ghi lượt truy cập (tối đa 1 lần / 30 phút / người / nhóm) và lượt mở tệp.
+create or replace function public.log_team_access(t uuid, what text default 'access', title text default '') returns void
+language plpgsql security definer set search_path = '' as $$
+declare me uuid := (select auth.uid());
+begin
+  if public.team_role(t) is null then return; end if;
+  if what = 'access' then
+    if exists (select 1 from public.team_activity where team_id = t and user_id = me and action = 'access' and at > now() - interval '30 minutes') then return; end if;
+    perform public.team_log(t, 'access', 'team', '', '');
+  elsif what = 'open' then
+    perform public.team_log(t, 'open', 'file', title, '');
+  end if;
+end $$;
+revoke all on function public.log_team_access(uuid,text,text) from public, anon;
+grant execute on function public.log_team_access(uuid,text,text) to authenticated;
+
+create or replace function public.cancel_team_invite(t uuid, mail text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  if public.team_role(t) is distinct from 'owner' then raise exception 'Chỉ chủ nhóm'; end if;
+  delete from public.team_invites where team_id = t and email = lower(trim(mail)) returning role into r;
+  if r is not null then perform public.team_log(t, 'invite_cancel', 'member', lower(trim(mail)), r); end if;
+end $$;
