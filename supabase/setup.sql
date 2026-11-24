@@ -36,16 +36,6 @@ create policy "lab_files_insert_own" on storage.objects for insert to authentica
 create policy "lab_files_update_own" on storage.objects for update to authenticated using (bucket_id = 'lab-files' and (storage.foldername(name))[1] = (select auth.uid())::text);
 create policy "lab_files_delete_own" on storage.objects for delete to authenticated using (bucket_id = 'lab-files' and (storage.foldername(name))[1] = (select auth.uid())::text);
 
--- 3) Chỉ một chủ lab: sau khi có tài khoản đầu tiên, mọi đăng ký mới bị từ chối.
-create or replace function public.lab_single_owner()
-returns trigger language plpgsql security definer set search_path = '' as $$
-begin
-  if exists (select 1 from auth.users) then
-    raise exception 'Signups not allowed: lab already has an owner';
-  end if;
-  return new;
-end;
-$$;
+-- 3) Ai cũng đăng ký được (mỗi người một lab riêng). Gỡ trigger "một chủ lab" của bản cũ nếu còn.
 drop trigger if exists lab_single_owner_trg on auth.users;
-create trigger lab_single_owner_trg before insert on auth.users
-for each row execute function public.lab_single_owner();
+drop function if exists public.lab_single_owner();

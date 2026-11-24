@@ -1,3 +1,5 @@
+// Chống clickjacking: GitHub Pages không gửi được header frame-ancestors, nên tự thoát khỏi khung lạ.
+if(window.top!==window.self){document.documentElement.innerHTML='';try{window.top.location.replace(window.location.href);}catch{}throw new Error('framed');}
 import {MODEL_TYPES,SIM_MODELS,guessModel,blocksOf,simOf,blockDiagramSVG,coverArt,DEFAULT_SIM} from './project-viz.js';
 import {drawSignals,PARAM_INFO} from './signals.js';
 import * as cloud from './cloud.js';
